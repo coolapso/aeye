@@ -1,0 +1,23 @@
+name: Release
+on: 
+  workflow_dispatch:
+  push:
+    branches:
+      - 'main'
+
+jobs:
+  release:
+    permissions: 
+      contents: write
+    uses: coolapso/dry/.github/workflows/release.yaml@main
+    secrets: inherit
+    with:
+      dev: true
+
+  docker:
+    needs: release
+    uses: coolapso/dry/.github/workflows/build_container_earthly.yaml@main
+    if: ${{ needs.release.outputs.version != '' }}
+    secrets: inherit
+    with:
+      release_tag: ${{ needs.release.outputs.version }}

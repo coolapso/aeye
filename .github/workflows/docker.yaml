@@ -1,0 +1,13 @@
+name: publish Container
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        required: true
+        description: The release tag to build
+jobs:
+  build:
+    uses: coolapso/dry/.github/workflows/build_container_earthly.yaml@main
+    secrets: inherit
+    with:
+      release_tag: ${{ inputs.release_tag }}
