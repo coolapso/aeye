@@ -35,9 +35,9 @@ test:
   LOCALLY
   WITH DOCKER
     RUN docker run \
+      -p 8000:8000 \
       -e MODE="testing" \
       -e VIDEO_SOURCE="$source" \
-      -p 8000:8000 \
       -e MODEL_NAME="$model" "$registry/$name:$tag"
   END
 
