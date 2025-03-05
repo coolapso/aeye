@@ -108,7 +108,6 @@ def detect(cap: cv2.VideoCapture, settings: Settings):
         processed_frame = preprocess_frame(frame)
         prediction = model.predict(processed_frame, verbose=settings.tf_verbose_level)[0][0]
         c.set(prediction)
-        print(f"Aurora confidence {prediction}")
         label = "not detected"
         color = (0, 0, 255)  # Red
         active = 0
@@ -206,5 +205,5 @@ def main():
 
 if __name__ == "__main__":
     settings = init_settings()
-    start_http_server(8000)
+    start_http_server(port=8000, addr="0.0.0.0")
     main()
