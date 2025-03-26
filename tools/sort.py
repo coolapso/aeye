@@ -27,16 +27,16 @@ skipped_frames = []
 excluded_frames = []
 
 
-def review_frames(dataset_root_dir: str, frames_dir: str):
-    frames = os.listdir(os.path.join(dataset_root_dir, frames_dir))
+def review_frames(frames_dir: str):
+    frames = os.listdir(frames_dir)
 
     total_frames = len(frames)
+    remaining_frames = total_frames
 
     for frame in frames:
-        remaining_frames = total_frames - (len(aurora_frames) + len(no_aurora_frames))
         remaining_frames_text = f"Remaining frames: {remaining_frames}"
         while True:
-            frame_path = os.path.join(dataset_root_dir, frames_dir, frame)
+            frame_path = os.path.join(frames_dir, frame)
             img = cv2.imread(frame_path, cv2.IMREAD_ANYCOLOR)
             img = cv2.putText(img, texts["close"], (0, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,255), 2)
             img = cv2.putText(img, texts["yes"], (0, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,255), 2)
@@ -65,6 +65,7 @@ def review_frames(dataset_root_dir: str, frames_dir: str):
                     skipped_frames.append(frame)
 
             break
+        remaining_frames = remaining_frames - 1
 
 
 def resize_and_save(src: str, dst_dir: str):
@@ -77,7 +78,7 @@ def resize_and_save(src: str, dst_dir: str):
 
 def move_frames(dataset_root_dir: str, frames_dir: str, frames: list, destination: str):
     for frame in frames:
-        frame_path = os.path.join(dataset_root_dir, frames_dir, frame)
+        frame_path = os.path.join(frames_dir, frame)
         dest_dir = os.path.join(dataset_root_dir, "orig", destination)
         resized_dest_dir = os.path.join(dataset_root_dir, "resized", destination)
 
@@ -87,7 +88,7 @@ def move_frames(dataset_root_dir: str, frames_dir: str, frames: list, destinatio
         if not os.path.exists(resized_dest_dir):
             os.makedirs(resized_dest_dir)
 
-        if frames_dir != dirs["excluded"]:
+        if os.path.basename(frames_dir) != dirs["excluded"]:
             resize_and_save(frame_path, resized_dest_dir)
 
         shutil.move(frame_path, os.path.join(dest_dir, frame))
@@ -113,16 +114,16 @@ def main():
             '--frames',
             '--frames-dir',
             dest='frames_dir',
-            default='unclassified',
+            default=os.path.join("dataset", "unclssified"),
             help='Name of the directory containing the frames to review',
             type=str,
         )
 
     args = parser.parse_args()
+    frames_dir = args.frames_dir
     dataset_root_dir = args.dataset_root
-    frames_dir = os.path.basename(args.frames_dir)
 
-    review_frames(dataset_root_dir, frames_dir)
+    review_frames(frames_dir)
 
     if len(aurora_frames) > 0:
         print(f'''Moving frames classifed as aurora to {dirs["yes"]}''')
