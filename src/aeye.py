@@ -108,13 +108,13 @@ def detect(cap: cv2.VideoCapture, settings: Settings):
         processed_frame = preprocess_frame(frame)
         prediction = model.predict(processed_frame, verbose=settings.tf_verbose_level)[0][0]
         c.set(prediction)
-        label = "not detected"
+        label = f"not detected {prediction}"
         color = (0, 0, 255)  # Red
         active = 0
         dir = os.path.join(settings.frames_output_root_dir, "00-not-detected")
 
         if settings.thresholds["uncertain"] <= prediction < settings.thresholds["detected"]:
-            label = "uncertain"
+            label = f"uncertain {prediction}"
             active = 2
             color = (0, 255, 255)  # Yellow
             dir = os.path.join(settings.frames_output_root_dir, "uncertain")
@@ -123,7 +123,7 @@ def detect(cap: cv2.VideoCapture, settings: Settings):
 
         if prediction >= settings.thresholds["detected"]:
             active = 1
-            label = "detected"
+            label = f"detected {prediction}"
             color = (0, 255, 0)  # Green
             dir = os.path.join(settings.frames_output_root_dir, "01-detected")
             if settings.save_frames:
