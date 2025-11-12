@@ -1,106 +1,126 @@
 #!/bin/python
 
 import argparse
-from tensorflow.keras import layers, models # type: ignore
-from tensorflow.keras.preprocessing.image import ImageDataGenerator # type: ignore
+import numpy as np
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.utils import to_categorical
 
 
-# Define image size and batch size
+# Constants
 IMAGE_SIZE = (128, 128)
 BATCH_SIZE = 32
-EPOCHS = 15  # Increase for better accuracy
+EPOCHS = 30
 
 
-def train(dataset: str, validation_data: str, output: str):
-    # Load dataset with preprocessing
-    datagen = ImageDataGenerator(
-        rescale=1.0 / 255,  # Normalize pixel values
-        validation_split=0.2  # 80% train, 20% validation
+def train(training_path: str, validation_path: str, test_path: str, output: str):
+    # Augment only training data
+    train_gen = ImageDataGenerator(
+        rescale=1.0 / 255,
+        rotation_range=20,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        shear_range=0.1,
+        zoom_range=0.2,
+        horizontal_flip=True,
+        fill_mode="nearest",
     )
 
-    data = datagen.flow_from_directory(
-        dataset, target_size=IMAGE_SIZE, batch_size=BATCH_SIZE,
-        class_mode="binary", subset="training"
+    # Only rescale validation and test data
+    val_test_gen = ImageDataGenerator(rescale=1.0 / 255)
+
+    data = train_gen.flow_from_directory(
+        training_path, target_size=IMAGE_SIZE, batch_size=BATCH_SIZE, class_mode="categorical"
     )
 
-    val_data = datagen.flow_from_directory(
-        validation_data, target_size=IMAGE_SIZE, batch_size=BATCH_SIZE,
-        class_mode="binary", subset="validation"
+    val_data = val_test_gen.flow_from_directory(
+        validation_path, target_size=IMAGE_SIZE, batch_size=BATCH_SIZE, class_mode="categorical"
     )
 
     print("✅ Dataset loaded successfully!")
+    print("🔍 Class indices:", data.class_indices)
+    print(
+        "📊 Training class distribution:", dict(zip(*np.unique(data.classes, return_counts=True)))
+    )
 
-    # Build CNN Model
-    model = models.Sequential([
-        layers.Conv2D(32, (3, 3), activation="relu", input_shape=(128, 128, 3)),
-        layers.MaxPooling2D(2, 2),
+    num_classes = len(data.class_indices)
 
-        layers.Conv2D(64, (3, 3), activation="relu"),
-        layers.MaxPooling2D(2, 2),
+    # Build CNN
+    model = models.Sequential(
+        [
+            layers.Input(shape=(128, 128, 3)),
+            layers.Conv2D(32, (3, 3), activation="relu"),
+            layers.MaxPooling2D(2, 2),
+            layers.Dropout(0.3),  # Increased from 0.25
+            layers.Conv2D(64, (3, 3), activation="relu"),
+            layers.MaxPooling2D(2, 2),
+            layers.Dropout(0.3),  # Increased from 0.25
+            layers.Conv2D(128, (3, 3), activation="relu"),
+            layers.MaxPooling2D(2, 2),
+            layers.Dropout(0.3),  # Increased from 0.25
+            layers.GlobalAveragePooling2D(),
+            layers.Dense(128, activation="relu"),
+            layers.Dropout(0.5),
+            # Softmax for multi-class
+            layers.Dense(num_classes, activation="softmax"),
+        ]
+    )
 
-        layers.Conv2D(128, (3, 3), activation="relu"),
-        layers.MaxPooling2D(2, 2),
-
-        layers.Flatten(),
-        layers.Dense(128, activation="relu"),
-        layers.Dense(1, activation="sigmoid")  # Binary classification
-    ])
-
-    # Compile model
-    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-
+    model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
     print("✅ Model built successfully!")
     model.summary()
 
-    # Train the model
-    model.fit(data, validation_data=val_data, epochs=EPOCHS)
+    # Callbacks
+    early_stop = EarlyStopping(
+        monitor="val_loss",
+        patience=5,
+        restore_best_weights=True,
+    )
 
-    # Evaluate
-    _, acc = model.evaluate(val_data)
-    print(f"🎯 Validation Accuracy: {acc:.2f}")
+    reduce_lr = ReduceLROnPlateau(monitor="val_loss", factor=0.2, patience=2, min_lr=0.00001)
 
-    if ".keras" not in output:
-        output = f"{output}.keras"
+    model.fit(data, validation_data=val_data, epochs=EPOCHS, callbacks=[early_stop, reduce_lr])
+    # Evaluate on validation set
+    loss, acc = model.evaluate(val_data)
+    print(f"🎯 Final Validation Accuracy: {acc:.2f}, loss: {loss:.2f}")
+
+    if not output.endswith(".keras"):
+        output += ".keras"
 
     model.save(output)
-    print("✅ keras model saved successfully!")
+    print(f"✅ Saved model at {output}")
+
+    # Final evaluation on the test set, if provided
+    if test_path:
+        print("\nEvaluating on the test set...")
+        test_data = val_test_gen.flow_from_directory(
+            test_path,
+            target_size=IMAGE_SIZE,
+            batch_size=BATCH_SIZE,
+            class_mode="categorical",
+            shuffle=False,
+        )
+        test_loss, test_acc = model.evaluate(test_data)
+        print(f"🎯 Final Test Accuracy: {test_acc:.2f}, Test Loss: {test_loss:.2f}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train the CNN AI model from set of images")
-
+    parser = argparse.ArgumentParser(description="Train a multi-class CNN image classifier")
     parser.add_argument(
-        '-d',
-        '--dataset',
-        dest="dataset",
-        required=True,
-        help='Path to the dataset with training data',
-        type=str,
+        "-t", "--training", required=True, type=str, help="Path to training dataset"
     )
-
     parser.add_argument(
-        '-v',
-        '--validation',
-        dest="validation",
-        help='''Path to dataset to be used as validation data,
-if no validation data provided, training data will be used''',
-        type=str,
+        "-v", "--validation", required=True, type=str, help="Path to validation dataset"
     )
-
     parser.add_argument(
-        '-o',
-        '--output',
-        dest="output",
-        help="Model destination and name",
-        required=True,
-        type=str,
+        "-e", "--test", type=str, help="Optional path to test dataset for final evaluation"
     )
+    parser.add_argument("-o", "--output", required=True, type=str, help="Output model path")
 
     args = parser.parse_args()
-    if args.validation is None:
-        args.validation = args.dataset
 
-    train(args.dataset, args.validation, args.output)
+    train(args.training, args.validation, args.test, args.output)
 
 
 if __name__ == "__main__":
