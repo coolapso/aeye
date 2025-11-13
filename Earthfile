@@ -3,7 +3,7 @@ IMPORT --allow-privileged github.com/coolapso/dry//python AS common
 ARG --global name = aeye
 ARG --global tag = dev
 ARG --global registry = ghcr.io/coolapso
-ARG --global model = arcticskies_aurora_v0_2.h5
+ARG --global model = models/arcticskies_efficientnet_86.keras
 ARG --global source = rtsps://10.20.0.1:7441/nUtRlxvxXC81ul5i?enableSrtp
 
 
