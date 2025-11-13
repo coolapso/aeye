@@ -7,60 +7,53 @@ import cv2
 import numpy as np
 import tensorflow as tf
 from prometheus_client import Gauge, start_http_server
+from tensorflow.keras.applications import mobilenet_v2, efficientnet
 
 os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;udp'
-g = Gauge('aeye_detected', '0 not detected, 1 detected, 2 uncertain')
+g = Gauge('aeye_detected_class_index', 'the index of the detectec class')
 c = Gauge('aeye_confidence', 'The prediction confidence')
 
 
 class Settings:
     _instance = None
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super(Settings, cls).__new__(cls)
         return cls._instance
 
     def __init__(self, video_source: str = "", model: tf.keras.Model = None,  # type: ignore
-                 frames_output_root_dir: str = "dataset",
                  tf_verbose_level: int = 0, ui: bool = False,
-                 mode: str = "default", save_frames: bool = False,
-                 thresholds: dict = {"uncertain": 0.65, "detected": 0.95},
-                 read_all_frames: bool = False):
+                 mode: str = "default",
+                 confidence_threshold: float = 0.75,
+                 class_labels: list = [],
+                 read_all_frames: bool = False,
+                 base_model_name: str = "efficientnet"):
 
-        if not hasattr(self, 'initialized'):
-            self.video_source = video_source
-            self.model = model
-            self.frames_output_root_dir = frames_output_root_dir
-            self.tf_verbose_level = tf_verbose_level
-            self.ui = ui
-            self.mode = mode
-            self.save_frames = save_frames
-            self.thresholds = thresholds
-            self.read_all_frames = read_all_frames
-            self.initialized = True
+        if hasattr(self, 'initialized') and self.initialized:
+            return
+
+        self.video_source = video_source
+        self.model = model
+        self.tf_verbose_level = tf_verbose_level
+        self.ui = ui
+        self.mode = mode
+        self.confidence_threshold = confidence_threshold
+        self.read_all_frames = read_all_frames
+        self.base_model_name = base_model_name
+        self.initialized = True
 
 
 def preprocess_frame(frame):
     frame = cv2.resize(frame, (128, 128))
-    frame = frame.astype("float32") / 255.0  # Normalize
     frame = np.expand_dims(frame, axis=0)  # Add batch dimension
+    if settings.base_model_name == "mobilenet":
+        frame = mobilenet_v2.preprocess_input(frame)
+    elif settings.base_model_name == "efficientnet":
+        frame = efficientnet.preprocess_input(frame)
+    else:
+        frame = frame.astype("float32") / 255.0  # Normalize for custom model
     return frame
-
-
-def save_frame_to_disk(frame, dir):
-    frame_name = f"{int(time.time())}.jpg"
-
-    if not os.path.exists(dir):
-        os.makedirs(dir)
-
-    file_path = os.path.join(dir, frame_name)
-
-    if os.path.exists(file_path):
-        frame_name = f"{frame_name}_{int(time.time())}.jpg"
-        file_path = os.path.join(dir, frame_name)
-
-    cv2.imwrite(file_path, frame)
 
 
 def set_ui() -> bool:
@@ -106,32 +99,24 @@ def detect(cap: cv2.VideoCapture, settings: Settings):
             break
 
         processed_frame = preprocess_frame(frame)
-        prediction = model.predict(processed_frame, verbose=settings.tf_verbose_level)[0][0]
-        c.set(prediction)
-        label = f"not detected {prediction}"
-        color = (0, 0, 255)  # Red
-        active = 0
-        dir = os.path.join(settings.frames_output_root_dir, "00-not-detected")
+        batch_predictions = model.predict(processed_frame, verbose=settings.tf_verbose_level)
+        predictions = np.array(batch_predictions[0])
 
-        if settings.thresholds["uncertain"] <= prediction < settings.thresholds["detected"]:
-            label = f"uncertain {prediction}"
-            active = 2
-            color = (0, 255, 255)  # Yellow
-            dir = os.path.join(settings.frames_output_root_dir, "uncertain")
-            if settings.save_frames:
-                save_frame_to_disk(frame, dir)
+        predicted_class_index = np.argmax(predictions)
+        confidence = predictions[predicted_class_index]
 
-        if prediction >= settings.thresholds["detected"]:
-            active = 1
-            label = f"detected {prediction}"
+        c.set(confidence)
+        g.set(predicted_class_index)
+
+        predicted_class_name = settings.class_labels[predicted_class_index]
+        label = f"{predicted_class_name} ({confidence:.2f})"
+
+        if confidence >= 0.75:
             color = (0, 255, 0)  # Green
-            dir = os.path.join(settings.frames_output_root_dir, "01-detected")
-            if settings.save_frames:
-                save_frame_to_disk(frame, dir)
-
-        g.set(active)
-        if settings.mode != "dynamic" and settings.save_frames is True:
-            save_frame_to_disk(frame, dir)
+        elif confidence >= 0.5 and confidence < 0.75:
+            color = (0, 255, 255)  # Yellow
+        else:
+            color = (0, 0, 255)  # Red
 
         if settings.ui:
             cv2.putText(frame, label, (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
@@ -141,6 +126,7 @@ def detect(cap: cv2.VideoCapture, settings: Settings):
                 cap.release()
                 cv2.destroyAllWindows()
                 break
+
 
         last_processed = time.time()
         frame_count += 1
@@ -154,6 +140,14 @@ def init_settings() -> Settings:
         print("Missing video source, please set the VIDEO_SOURCE env variable")
         exit(1)
 
+    mode = os.getenv("MODE", "default")
+    settings.mode = mode
+
+    print(f"running in {settings.mode} mode")
+    if mode in "testing":
+        settings.tf_verbose_level = 1
+        settings.ui = set_ui()
+
     settings.video_source = video_source
     model_name = os.getenv("MODEL_NAME")
     if not model_name:
@@ -163,22 +157,27 @@ def init_settings() -> Settings:
     model_path = os.path.join("models", str(model_name))
     settings.model = tf.keras.models.load_model(model_path)  # type: ignore
 
+    base_model_name = os.getenv("BASE_MODEL_NAME")
+    if base_model_name:
+        settings.base_model_name = base_model_name
+
+    class_labels_str = os.getenv("CLASS_LABELS")
+    if not class_labels_str:
+        print("Missing class labels, please set the CLASS_LABELS env variable (comma-separated)")
+        exit(1)
+    settings.class_labels = [label.strip() for label in class_labels_str.split(',')]
+    print(f"Loaded class labels: {settings.class_labels}")
+
+    try:
+        threshold = os.getenv("CONFIDENCE_THRESHOLD")
+        if threshold:
+            settings.confidence_threshold = float(threshold)
+    except ValueError:
+        print(f"Invalid CONFIDENCE_THRESHOLD value. Using default: {settings.confidence_threshold}")
+
     mode = os.getenv("MODE")
     if mode is not None:
         settings.mode = mode
-
-    print(f"running in {settings.mode} mode")
-    if mode in ["testing", "classify"]:
-        settings.tf_verbose_level = 1
-        settings.ui = set_ui()
-
-    if mode in ["classify", "dynamic"]:
-        if os.getenv("VERBOSE"):
-            settings.tf_verbose_level = 1
-        settings.save_frames = True
-
-        ford = os.getenv("FRAMES_OUTPUT_ROOT_DIR", settings.frames_output_root_dir)
-        settings.frames_output_root_dir = ford
 
     read_all_frames = os.getenv("READ_ALL_FRAMES")
     if str(read_all_frames).lower() == "true":

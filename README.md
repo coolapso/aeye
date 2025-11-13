@@ -25,7 +25,7 @@ Whether you're tracking auroras, wildlife, or any other visual phenomenon, this 
 
 ## Features
 
-✅ **Image Sorting Assistance** – Sorting images manually can be tedious. Use `sort.py` to **quickly categorize images** by pressing `"y"` (yes) or `"n"` (no). The script automatically organizes them into the correct folder structure for training.
+✅ **class detection** – the model can be trained to detect diferent classes of objects, ex: cat, dogs, birds, etc. In My case I am training it to detect northern lights in diferent scenarios: Clear skies, Aurora in clear sky, Cloudy skies, aurora in cloudy sky, and each is a class.
 
 ✅ **Efficient Image Resizing** – High-resolution images are **resource-intensive** and often unnecessary for training the sorting tool will **downscale images** to an optimal resolution.
 
@@ -47,12 +47,13 @@ Whether you're tracking auroras, wildlife, or any other visual phenomenon, this 
 
 Even though this repository simplifies the process significantly, there’s still some work to do! Hopefully, this documentation will guide you through it smoothly.
 
-### 1️⃣ Collect Training Data
+### 1️⃣ Collect Training Dat
 
-To train the AI model, you need an **initial dataset**. While smaller datasets work, I recommend:
-- **At least 800 images** containing the object you want to detect.
-- **At least 800 images** that **do not** contain the object.
-- (Optional) Another **separate dataset for validation**, not used during training.
+To train the AI model, you need an **initial dataset**. While smaller datasets work the more data you have the better. ideally you should have 60% of your dataset for training, 20% for validation and 20% for testing. this being said, having a dataset with at least:
+
+- *800* images per obect for training
+- *200* images per object for validation
+- *200* images per object for testing
 
 For **best performance**, images should be resized to a smaller resolution. Training on full-resolution images provides **little benefit** but requires significantly more resources.
 
@@ -74,55 +75,19 @@ pip install -r tools/requirements.txt
 ---
 
 ## 3️⃣ Prepare the Images
-Use `sort.py` to categorize images:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/coolapso/aeye/refs/heads/main/images/sort-demo.gif">
-</p>
-
-
-```sh
-python tools/sort.py -r dataset -f allimages
-```
-
-### Usage:
-```sh
-usage: sort.py [-h] [-r DATASET_ROOT] [-f FRAMES_DIR]
-
-Tool to assist with image sorting before using them for training.
-
-options:
-  -h, --help            Show this help message and exit
-  -r DATASET_ROOT, --root DATASET_ROOT
-                        The root directory of the dataset
-  -f FRAMES_DIR, --frames FRAMES_DIR
-                        Directory containing images to review
-```
-
-**How it works:**
-- Press **"y"** for images **containing** the object.
-- Press **"n"** for images **without** the object.
-
-The script will automatically:
-
-✅ Move files to `00-detected/` and `01-not-detected/` directories.
-
-✅ Store **both original and resized images** for training.
-
-> [!IMPORTANT]
-> The **numbers in directory names are important**—they define the dataset structure used for training and metric generation!
+Use [picsort](https://github.com/coolapso/picsort) to categorize images, this tool will provide you with a nice UI and ergonomic workflow to sort your images and will allow you to export a balanced dataset divided into training, validation and testing sets.
 
 ---
 
 ## 4️⃣ Train the Model
-Use `train.py` to train the AI model:
+Use `train.py` to train the AI model, the script expect you to have training, validation and testing datasets, you can use the ones you created with picsort.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/coolapso/aeye/refs/heads/main/images/train-demo.gif">
 </p>
 
 ```sh
-python tools/train.py --dataset dataset/ --validation validation-dataset/ --output models/my_model.keras
+python tools/train.py -t dataset/balanced_export_full/training -v dataset/balanced_export_full/validation -e dataset/balanced_export_full/test --output models/test_full_3.keras
 ```
 
 ---
@@ -137,8 +102,8 @@ The application loads the trained model and generates **Prometheus metrics** for
 |--------------------------|-------------|--------------|
 | `VIDEO_SOURCE`           | Video file or RTSP stream for analysis | - |
 | `MODEL_NAME`             | Model filename (must be in `models/` directory) | - |
-| `MODE`                   | Operation mode (`default`, `testing`, `classify`, `dynamic`) | `default` |
-| `FRAMES_OUTPUT_ROOT_DIR` | Where images are stored in `classify` or `dynamic` mode | `dataset/` |
+| `BASE_MODEL_NAME`        | Base model used for transfer learning (`mobilenet` or `efficientnet`) | `efficientnet` |
+| `MODE`                   | Operation mode (`default`, `testing`) | `default` |
 | `READ_ALL_FRAMES`        | Analyze every frame instead of 1 FPS | `false` |
 
 Metrics are available at [`http://localhost:8000`](http://localhost:8000).
@@ -148,7 +113,7 @@ Metrics are available at [`http://localhost:8000`](http://localhost:8000).
 Activate the virtual environment and run:
 
 ```sh
-VIDEO_SOURCE="..." MODEL_NAME="my_model.keras" python src/aeye.py
+VIDEO_SOURCE="..." MODEL_NAME="my_model.keras" BASE_MODEL_NAME="mobilenet" python src/aeye.py
 ```
 
 ---
@@ -157,7 +122,7 @@ VIDEO_SOURCE="..." MODEL_NAME="my_model.keras" python src/aeye.py
 
 ```sh
 docker run -tid -p 8000:8000 -v models/:models/ \
-  -e VIDEO_SOURCE="..." -e MODEL_NAME="my_model.keras" my_docker_image
+  -e VIDEO_SOURCE="..." -e MODEL_NAME="my_model.keras" -e BASE_MODEL_NAME="mobilenet" my_docker_image
 ```
 
 ---
@@ -184,10 +149,10 @@ ENV VIDEO_SOURCE="..."
 
 ## Exposed metrics
 
-| Metric name     | Type  | Description                                                           |
-|-----------------|-------|-----------------------------------------------------------------------|
-| aeye_detected   | Gauge | If object is detected or not, 0 not detected, 1 detected, 2 uncertain |
-| aeye_confidence | Gauge | The confidence of the detection                                       |
+| Metric name               | Type  | Description                                                           |
+|---------------------------|-------|-----------------------------------------------------------------------|
+| aeye_detected_class_index | Gauge | The index of the detected class.                                      |
+| aeye_confidence           | Gauge | The confidence of the detection                                       |
 
 # 🤝 Contributions
 

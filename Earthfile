@@ -3,8 +3,8 @@ IMPORT --allow-privileged github.com/coolapso/dry//python AS common
 ARG --global name = aeye
 ARG --global tag = dev
 ARG --global registry = ghcr.io/coolapso
-ARG --global model = models/arcticskies_efficientnet_86.keras
-ARG --global source = rtsps://10.20.0.1:7441/nUtRlxvxXC81ul5i?enableSrtp
+ARG --global model = arcticskies_efficientnet_86.keras
+ARG --global source = rtsps://192.168.10.1:7441/nUtRlxvxXC81ul5i?enableSrtp
 
 
 venv:
@@ -46,6 +46,7 @@ run:
     RUN QT_QPA_PLATFORM=xcb \
       VIDEO_SOURCE="$source" \
       MODEL_NAME="$model" \
+      CLASS_LABELS="clear,aurora,cloudy,cloudy_aurora" \
       python src/aeye.py
       
 run-testing:
@@ -54,6 +55,7 @@ run-testing:
       MODE=testing \
       VIDEO_SOURCE="$source" \
       MODEL_NAME="$model" \
+      CLASS_LABELS="clear,aurora,cloudy,cloudy_aurora" \
       python src/aeye.py
 
 run-classify:
