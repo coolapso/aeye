@@ -10,8 +10,9 @@ from prometheus_client import Gauge, start_http_server
 from tensorflow.keras.applications import mobilenet_v2, efficientnet
 
 os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;udp'
-g = Gauge('aeye_detected_class_index', 'the index of the detectec class')
-c = Gauge('aeye_confidence', 'The prediction confidence')
+c = Gauge(
+    "aeye_detection_confidence", "The prediction confidence for a detected class", ["class_name"]
+)
 
 
 class Settings:
@@ -22,15 +23,19 @@ class Settings:
             cls._instance = super(Settings, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, video_source: str = "", model: tf.keras.Model = None,  # type: ignore
-                 tf_verbose_level: int = 0, ui: bool = False,
-                 mode: str = "default",
-                 confidence_threshold: float = 0.75,
-                 class_labels: list = [],
-                 read_all_frames: bool = False,
-                 base_model_name: str = "efficientnet"):
-
-        if hasattr(self, 'initialized') and self.initialized:
+    def __init__(
+        self,
+        video_source: str = "",
+        model: tf.keras.Model = None,  # type: ignore
+        tf_verbose_level: int = 0,
+        ui: bool = False,
+        mode: str = "default",
+        confidence_threshold: float = 0.75,
+        class_labels: list = [],
+        read_all_frames: bool = False,
+        base_model_name: str = "efficientnet",
+    ):
+        if hasattr(self, "initialized") and self.initialized:
             return
 
         self.video_source = video_source
@@ -77,7 +82,6 @@ def detect(cap: cv2.VideoCapture, settings: Settings):
         rtsp = False
 
     while cap.isOpened():
-
         # Process one frame per second to handle the feed in real time and prevent
         # TensorFlow from buffering frames, which can skew metrics between the metric
         # time and the actual frame timestamp. Use cap.grab() as it's less resource
@@ -102,16 +106,17 @@ def detect(cap: cv2.VideoCapture, settings: Settings):
         batch_predictions = model.predict(processed_frame, verbose=settings.tf_verbose_level)
         predictions = np.array(batch_predictions[0])
 
+        for i, confidence in enumerate(predictions):
+            class_name = settings.class_labels[i]
+            c.labels(class_name=class_name).set(confidence)
+
         predicted_class_index = np.argmax(predictions)
         confidence = predictions[predicted_class_index]
-
-        c.set(confidence)
-        g.set(predicted_class_index)
 
         predicted_class_name = settings.class_labels[predicted_class_index]
         label = f"{predicted_class_name} ({confidence:.2f})"
 
-        if confidence >= 0.75:
+        if confidence >= settings.confidence_threshold:
             color = (0, 255, 0)  # Green
         elif confidence >= 0.5 and confidence < 0.75:
             color = (0, 255, 255)  # Yellow
@@ -122,11 +127,10 @@ def detect(cap: cv2.VideoCapture, settings: Settings):
             cv2.putText(frame, label, (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
             cv2.imshow("aeye", frame)
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord("q"):
                 cap.release()
                 cv2.destroyAllWindows()
                 break
-
 
         last_processed = time.time()
         frame_count += 1
@@ -165,7 +169,7 @@ def init_settings() -> Settings:
     if not class_labels_str:
         print("Missing class labels, please set the CLASS_LABELS env variable (comma-separated)")
         exit(1)
-    settings.class_labels = [label.strip() for label in class_labels_str.split(',')]
+    settings.class_labels = [label.strip() for label in class_labels_str.split(",")]
     print(f"Loaded class labels: {settings.class_labels}")
 
     try:
@@ -191,7 +195,7 @@ def main():
     cap = cv2.VideoCapture(settings.video_source, cv2.CAP_FFMPEG)
 
     if not cap.isOpened():
-        print('Could not open stream')
+        print("Could not open stream")
         exit(1)
 
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
