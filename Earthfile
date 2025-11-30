@@ -5,6 +5,7 @@ ARG --global tag = dev
 ARG --global registry = ghcr.io/coolapso
 ARG --global model = arcticskies_efficientnet_86.keras
 ARG --global source = rtsps://192.168.10.1:7441/nUtRlxvxXC81ul5i?enableSrtp
+ARG --global labels = clear,aurora,cloudy,cloudy_aurora
 
 
 venv:
@@ -55,22 +56,5 @@ run-testing:
       MODE=testing \
       VIDEO_SOURCE="$source" \
       MODEL_NAME="$model" \
-      CLASS_LABELS="clear,aurora,cloudy,cloudy_aurora" \
+      CLASS_LABELS="$labels" \
       python src/aeye.py
-
-run-classify:
-  LOCALLY
-    RUN QT_QPA_PLATFORM=xcb \
-        MODE=classify \
-        VIDEO_SOURCE="$source" \
-        FRAMES_OUTPUT_ROOT_DIR="test-dataset" \
-        python src/aeye.py
-
-run-dynamic:
-  LOCALLY
-    RUN QT_QPA_PLATFORM=xcb \
-        MODE=dynamic \
-        VERBOSE=True \
-        VIDEO_SOURCE="$source" \
-        FRAMES_OUTPUT_ROOT_DIR="test-dataset" \
-        python src/aeye.py
